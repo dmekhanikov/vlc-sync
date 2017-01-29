@@ -20,7 +20,6 @@ widgets = {
 }
 
 socket = nil
-running = true
 message_type_size = 1
 message_pos_size = 4
 
@@ -53,6 +52,8 @@ function connect()
     local host = widgets.host_input:get_text()
     local port = widgets.port_input:get_text()
     socket = vlc.net.connect_tcp(host, port)
+    communicate()
+
     widgets.dialog:del_widget(widgets.connect_button)
     widgets.connect_button = nil
     widgets.disconnect_button = widgets.dialog:add_button("Disconnect", disconnect, 3, 2)
@@ -71,6 +72,13 @@ function disconnect()
     vlc.msg.info("Connection closed")
 end
 
+-- TODO: do polling
+function communicate()
+    while socket do
+        read_command()
+    end
+end
+
 --[[
     1 byte: code
     01: play
@@ -78,26 +86,23 @@ end
     03: seek position
         4 bytes: position in seconds
 ]]
-function communicate()
-    while socket do
-        local message_type = read_data(socket, message_type_size):byte(1)
-        if message_type == 1 then
-            vlc.msg.dbg("Play command received")
-            vlc.playlist.play()
-        elseif message_type == 2 then
-            vlc.msg.dbg("Pause command received")
-            vlc.playlist.pause()
-        elseif message_type == 3 then
-            local position = read_data(socket, message_pos_size)
-            vlc.msg.dbg("Seek message received; position: " .. position .. " seconds")
-            seek(position)
-        else
-            vlc.msg.dbg("Message of unknown type received")
-        end
+function read_command()
+    local message_type = read(socket, message_type_size):byte(1)
+    if message_type == 1 then
+        vlc.msg.dbg("Play command received")
+        vlc.playlist.play()
+    elseif message_type == 2 then
+        vlc.msg.dbg("Pause command received")
+        vlc.playlist.pause()
+    elseif message_type == 3 then
+        vlc.msg.dbg("Seek message received")
+        -- TODO: read position and seek
+    else
+        vlc.msg.dbg("Message of unknown type received")
     end
 end
 
-function read_data(fd, length)
+function read(fd, length)
     local left = length
     local message = ""
     while left ~= 0 do
