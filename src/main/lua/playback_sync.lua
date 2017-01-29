@@ -20,6 +20,9 @@ widgets = {
 }
 
 socket = nil
+running = true
+message_type_size = 1
+message_pos_size = 4
 
 function activate()
     widgets.dialog = vlc.dialog("Playback Synchronization")
@@ -43,25 +46,68 @@ function deactivate()
 end
 
 function close()
-    vlc.deactivate()
+    disconnect()
 end
 
 function connect()
     local host = widgets.host_input:get_text()
     local port = widgets.port_input:get_text()
-    -- connect
-    vlc.msg.info("Connected to " .. host .. ":" .. port)
+    socket = vlc.net.connect_tcp(host, port)
     widgets.dialog:del_widget(widgets.connect_button)
     widgets.connect_button = nil
     widgets.disconnect_button = widgets.dialog:add_button("Disconnect", disconnect, 3, 2)
 end
 
 function disconnect()
-    -- disconnect
+    if widgets.disconnect_button then
+        widgets.dialog:del_widget(widgets.disconnect_button)
+        widgets.disconnect_button = nil
+        widgets.connect_button = widgets.dialog:add_button("Connect", connect, 3, 2)
+    end
+    if socket then
+        vlc.net.close(socket)
+        socket = nil
+    end
     vlc.msg.info("Connection closed")
-    widgets.dialog:del_widget(widgets.disconnect_button)
-    widgets.disconnect_button = nil
-    widgets.connect_button = widgets.dialog:add_button("Connect", connect, 3, 2)
+end
+
+--[[
+    1 byte: code
+    01: play
+    02: pause
+    03: seek position
+        4 bytes: position in seconds
+]]
+function communicate()
+    while socket do
+        local message_type = read_data(socket, message_type_size):byte(1)
+        if message_type == 1 then
+            vlc.msg.dbg("Play command received")
+            vlc.playlist.play()
+        elseif message_type == 2 then
+            vlc.msg.dbg("Pause command received")
+            vlc.playlist.pause()
+        elseif message_type == 3 then
+            local position = read_data(socket, message_pos_size)
+            vlc.msg.dbg("Seek message received; position: " .. position .. " seconds")
+            seek(position)
+        else
+            vlc.msg.dbg("Message of unknown type received")
+        end
+    end
+end
+
+function read_data(fd, length)
+    local left = length
+    local message = ""
+    while left ~= 0 do
+        local s = vlc.net.read(fd, left)
+        if s then
+            message = message .. s
+            left = left - s:len()
+        end
+    end
+    return message
 end
 
 function seek(time)
