@@ -3,6 +3,7 @@ host = "localhost"
 port = 7773
 message_type_size = 1
 message_pos_size = 4
+sleep_duration = 2500
 
 vlc.msg.info("Sync interface")
 
@@ -15,6 +16,7 @@ function read(fd, length)
             message = message .. s
             left = left - s:len()
         end
+        vlc.misc.mwait(vlc.misc.mdate() + sleep_duration)
     end
     return message
 end
