@@ -1,8 +1,10 @@
 function descriptor()
-    return { title = "PlaybackSync" ;
-        version = "0.1" ;
-        author = "Denis Mekhanikov" ;
-        capabilities = {} }
+    return {
+        title = "PlaybackSync",
+        version = "0.1",
+        author = "Denis Mekhanikov",
+        capabilities = {}
+    }
 end
 
 widgets = {
@@ -37,6 +39,13 @@ function activate()
     widgets.dialog:show()
 end
 
+function deactivate()
+end
+
+function close()
+    vlc.deactivate()
+end
+
 function connect()
     local host = widgets.host_input:get_text()
     local port = widgets.port_input:get_text()
@@ -58,11 +67,4 @@ end
 function seek(time)
     local input = vlc.object.input()
     vlc.var.set(input, "time", time)
-end
-
-function deactivate()
-end
-
-function close()
-    vlc.deactivate()
 end
