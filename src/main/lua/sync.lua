@@ -4,12 +4,14 @@ port = 7773
 message_type_size = 1
 message_time_size = 4
 sleep_duration = 2500
+time_eps = 2
 play_message = string.char(1)
 pause_message = string.char(2)
 seek_message = string.char(3)
 
 status = {
-    play_status = false
+    play_status = false,
+    time = 0
 }
 
 vlc.msg.info("Sync interface")
@@ -37,12 +39,19 @@ function write(fd, data)
 end
 
 function process_changes()
-    local play_status = vlc.playlist.status()
-    if status.play_status ~= play_status then
-        if play_status == "playing" then
-            handle_play()
-        else
-            handle_pause()
+    local input = vlc.object.input()
+    if input then
+        local play_status = vlc.playlist.status()
+        if status.play_status ~= play_status then
+            if play_status == "playing" then
+                handle_play()
+            else
+                handle_pause()
+            end
+        end
+        local time = vlc.var.get(input, "time")
+        if (math.abs(time - status.time) > time_eps) then
+            handle_seek()
         end
         update_status()
     end
@@ -68,8 +77,13 @@ function handle_seek()
 end
 
 function update_status()
-    local play_status = vlc.playlist.status()
-    status.play_status = play_status
+    local input = vlc.object.input()
+    if input then
+        local play_status = vlc.playlist.status()
+        local time = vlc.var.get(input, "time")
+        status.play_status = play_status
+        status.time = time
+    end
 end
 
 time_radix = 256
@@ -97,7 +111,9 @@ end
 
 function seek(time)
     local input = vlc.object.input()
-    vlc.var.set(input, "time", time)
+    if input then
+        vlc.var.set(input, "time", time)
+    end
 end
 
 --[[
