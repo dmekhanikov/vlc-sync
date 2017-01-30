@@ -1,6 +1,8 @@
 package megabyte.vlcsync;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.Reader;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Collections;
@@ -42,20 +44,67 @@ public class SyncServer {
     }
 
     private void acceptConnections() {
-        while (true) {
+        while (!Thread.interrupted()) {
             try {
                 Socket connectionSocket = serverSocket.accept();
                 System.err.println("Client connected: " + connectionSocket.getInetAddress().getHostAddress());
                 connections.add(connectionSocket);
+                new Thread(() -> resendMessages(connectionSocket)).start();
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
     }
 
+    private void resendMessages(Socket clientSocket) {
+        Reader reader;
+        try {
+            reader = new InputStreamReader(clientSocket.getInputStream());
+        } catch (IOException e) {
+            System.err.println(readErrMsg(clientSocket, e));
+            return;
+        }
+        char[] buffer = new char[1];
+        try {
+            while (true) {
+                int r = reader.read(buffer);
+                if (r == -1) {
+                    return;
+                }
+                byte[] message;
+                if (buffer[0] == PLAY_MESSAGE[0]) {
+                    System.err.println("Play message received");
+                    message = PLAY_MESSAGE;
+                } else if (buffer[0] == PAUSE_MESSAGE[0]) {
+                    System.err.println("Pause message received");
+                    message = PAUSE_MESSAGE;
+                } else {
+                    System.err.println("Received a message of unknown type: " + buffer[0]);
+                    continue;
+                }
+                sendToClients(message, clientSocket);
+            }
+        } catch (IOException e) {
+            System.err.println(readErrMsg(clientSocket, e));
+        }
+    }
+
+    private String readErrMsg(Socket socket, IOException e) {
+        return "Could not read from client's socket. " +
+                "IP: " + socket.getInetAddress().getHostAddress() +
+                "Cause: " + e.getMessage();
+    }
+
     private void sendToClients(byte[] message) {
+        sendToClients(message, null);
+    }
+
+    private void sendToClients(byte[] message, Socket except) {
         for (Iterator<Socket> it = connections.iterator(); it.hasNext(); ) {
             Socket clientSocket = it.next();
+            if (clientSocket == except) {
+                continue;
+            }
             if (clientSocket.isClosed()) {
                 it.remove();
             } else {
