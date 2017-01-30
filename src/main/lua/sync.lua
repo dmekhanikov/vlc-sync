@@ -2,10 +2,11 @@
 host = "localhost"
 port = 7773
 message_type_size = 1
-message_pos_size = 4
+message_time_size = 4
 sleep_duration = 2500
 play_message = string.char(1)
 pause_message = string.char(2)
+seek_message = string.char(3)
 
 status = {
     play_status = false
@@ -35,11 +36,6 @@ function write(fd, data)
     vlc.net.send(fd, data)
 end
 
-function seek(time)
-    local input = vlc.object.input()
-    vlc.var.set(input, "time", time)
-end
-
 function process_changes()
     local play_status = vlc.playlist.status()
     if status.play_status ~= play_status then
@@ -54,6 +50,7 @@ end
 
 function handle_play()
     vlc.msg.dbg("Sending play message")
+    handle_seek()
     write(socket, play_message)
 end
 
@@ -62,9 +59,45 @@ function handle_pause()
     write(socket, pause_message)
 end
 
+function handle_seek()
+    vlc.msg.dbg("Sending seek message")
+    local time = vlc.var.get(vlc.object.input(), "time")
+    local mstime = math.floor(time * 1000)
+    vlc.msg.dbg("time: " .. mstime)
+    write(socket, seek_message .. encode_time(mstime))
+end
+
 function update_status()
     local play_status = vlc.playlist.status()
     status.play_status = play_status
+end
+
+time_radix = 256
+
+function encode_time(time)
+    local s = ""
+    while time ~= 0 do
+        local x = time % time_radix
+        s = s .. string.char(x)
+        time = math.floor(time / time_radix)
+    end
+    while (s:len() ~= 4) do
+        s = s .. string.char(0)
+    end
+    return s
+end
+
+function decode_time(s)
+    local time = 0
+    for i = s:len(), 1, -1 do
+        time = time * time_radix + s:byte(i)
+    end
+    return time
+end
+
+function seek(time)
+    local input = vlc.object.input()
+    vlc.var.set(input, "time", time)
 end
 
 --[[
@@ -84,7 +117,8 @@ while true do
         vlc.playlist.pause()
     elseif message_type == 3 then
         vlc.msg.dbg("Seek message received")
-        -- TODO: read position and seek
+        local mstime = decode_time(read(socket, message_time_size))
+        seek(mstime / 1000)
     else
         vlc.msg.dbg("Message of unknown type received")
     end
