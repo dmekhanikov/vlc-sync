@@ -1,6 +1,5 @@
--- TODO get host and port from config
-host = "localhost"
-port = 7773
+host = config.host or "localhost"
+port = config.port or 7773
 message_type_size = 1
 message_time_size = 4
 sleep_duration = 2500
