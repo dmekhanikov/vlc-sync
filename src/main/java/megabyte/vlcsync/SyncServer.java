@@ -1,8 +1,7 @@
 package megabyte.vlcsync;
 
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.Reader;
+import java.io.InputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Collections;
@@ -16,6 +15,8 @@ public class SyncServer {
     public static final int DEFAULT_PORT = 7773;
     private static final byte[] PLAY_MESSAGE = {1};
     private static final byte[] PAUSE_MESSAGE = {2};
+    private static final int SEEK_MESSAGE_CODE = 3;
+    private static final int SEEK_MESSAGE_SIZE = 5;
 
     private final ServerSocket serverSocket;
     private final Set<Socket> connections = Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -57,29 +58,28 @@ public class SyncServer {
     }
 
     private void resendMessages(Socket clientSocket) {
-        Reader reader;
         try {
-            reader = new InputStreamReader(clientSocket.getInputStream());
-        } catch (IOException e) {
-            System.err.println(readErrMsg(clientSocket, e));
-            return;
-        }
-        char[] buffer = new char[1];
-        try {
+            InputStream inputStream = clientSocket.getInputStream();
             while (true) {
-                int r = reader.read(buffer);
+                int r = inputStream.read();
                 if (r == -1) {
                     return;
                 }
                 byte[] message;
-                if (buffer[0] == PLAY_MESSAGE[0]) {
+                if (r == PLAY_MESSAGE[0]) {
                     System.err.println("Play message received");
                     message = PLAY_MESSAGE;
-                } else if (buffer[0] == PAUSE_MESSAGE[0]) {
+                } else if (r == PAUSE_MESSAGE[0]) {
                     System.err.println("Pause message received");
                     message = PAUSE_MESSAGE;
+                } else if (r == SEEK_MESSAGE_CODE) {
+                    System.err.println("Seek message received");
+                    message = new byte[SEEK_MESSAGE_SIZE];
+                    message[0] = SEEK_MESSAGE_CODE;
+                    read(inputStream, message, 1, SEEK_MESSAGE_SIZE - 1);
+                    sendToClients(message, clientSocket);
                 } else {
-                    System.err.println("Received a message of unknown type: " + buffer[0]);
+                    System.err.println("Received a message of unknown type: " + r);
                     continue;
                 }
                 sendToClients(message, clientSocket);
@@ -89,10 +89,22 @@ public class SyncServer {
         }
     }
 
+    private void read(InputStream inputStream, byte[] buffer, int off, int len) throws IOException {
+        int fetched = 0;
+        while (fetched != len) {
+            int r = inputStream.read(buffer, off + fetched, len - fetched);
+            if (r == -1) {
+                throw new IOException("EOF reached");
+            } else {
+                fetched += r;
+            }
+        }
+    }
+
     private String readErrMsg(Socket socket, IOException e) {
-        return "Could not read from client's socket. " +
+        return "Could not read from client's socket; " +
                 "IP: " + socket.getInetAddress().getHostAddress() +
-                "Cause: " + e.getMessage();
+                "; cause: " + e.getMessage();
     }
 
     private void sendToClients(byte[] message) {
