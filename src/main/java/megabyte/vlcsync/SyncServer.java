@@ -9,14 +9,20 @@ import java.util.Iterator;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class SyncServer {
 
     public static final int DEFAULT_PORT = 7773;
     private static final byte[] PLAY_MESSAGE = {1};
     private static final byte[] PAUSE_MESSAGE = {2};
-    private static final int SEEK_MESSAGE_CODE = 3;
+    private static final byte SEEK_MESSAGE_CODE = 3;
     private static final int SEEK_MESSAGE_SIZE = 5;
+    private static final byte[] WAKEUP_MESSAGE = {-128};
+
+    private static final int WAKEUP_RATE = 500;
 
     private final ServerSocket serverSocket;
     private final Set<Socket> connections = Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -27,6 +33,7 @@ public class SyncServer {
 
     private void doMain() throws IOException {
         new Thread(this::acceptConnections).start();
+        scheduleWakeups();
         Scanner scanner = new Scanner(System.in);
         while (scanner.hasNextLine()) {
             String command = scanner.nextLine().trim();
@@ -109,6 +116,11 @@ public class SyncServer {
 
     private void sendToClients(byte[] message) {
         sendToClients(message, null);
+    }
+
+    private void scheduleWakeups() {
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+        scheduler.scheduleAtFixedRate(() -> sendToClients(WAKEUP_MESSAGE), WAKEUP_RATE, WAKEUP_RATE, TimeUnit.MILLISECONDS);
     }
 
     private void sendToClients(byte[] message, Socket except) {

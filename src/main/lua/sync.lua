@@ -2,11 +2,15 @@ host = config.host or "localhost"
 port = config.port or 7773
 message_type_size = 1
 message_time_size = 4
-sleep_duration = 2500
 time_eps = 2
-play_message = string.char(1)
-pause_message = string.char(2)
-seek_message = string.char(3)
+
+play_message_code = 1
+pause_message_code = 2
+seek_message_code = 3
+wakeup_message_code = 128
+play_message = string.char(play_message_code)
+pause_message = string.char(pause_message_code)
+seek_message = string.char(seek_message_code)
 
 status = {
     play_status = false,
@@ -21,13 +25,17 @@ function read(fd, length)
     local left = length
     local message = ""
     while left ~= 0 do
-        local s = vlc.net.recv(fd, left)
-        if s then
-            message = message .. s
-            left = left - s:len()
+        local pollfds = {}
+        -- vlc.msg.dbg("poll")
+        pollfds[fd] = vlc.net.POLLIN
+        local ret = vlc.net.poll(pollfds)
+        if ret > 0 then
+            local s = vlc.net.recv(fd, left)
+            if s then
+                message = message .. s
+                left = left - s:len()
+            end
         end
-
-        vlc.misc.mwait(vlc.misc.mdate() + sleep_duration)
         process_changes()
     end
     return message
@@ -124,18 +132,20 @@ end
 ]]
 while true do
     local message_type = read(socket, message_type_size):byte(1)
-    if message_type == 1 then
+    if message_type == play_message_code then
         vlc.msg.dbg("Play command received")
         vlc.playlist.play()
-    elseif message_type == 2 then
+    elseif message_type == pause_message_code then
         vlc.msg.dbg("Pause command received")
         vlc.playlist.pause()
-    elseif message_type == 3 then
+    elseif message_type == seek_message_code then
         vlc.msg.dbg("Seek message received")
         local mstime = decode_time(read(socket, message_time_size))
         seek(mstime / 1000)
+    elseif message_type == wakeup_message_code then
+        -- vlc.msg.dbg("Wakeup message received")
     else
-        vlc.msg.dbg("Message of unknown type received")
+        vlc.msg.dbg("Message of unknown type received: " .. message_type)
     end
     update_status()
 end
