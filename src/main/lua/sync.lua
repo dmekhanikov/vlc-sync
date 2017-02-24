@@ -3,14 +3,16 @@ port = config.port or 7773
 message_type_size = 1
 message_time_size = 4
 time_eps = 2
+playing = "playing"
 
 play_message_code = 1
 pause_message_code = 2
 seek_message_code = 3
-wakeup_message_code = 128
+ping_message_code = 127
 play_message = string.char(play_message_code)
 pause_message = string.char(pause_message_code)
 seek_message = string.char(seek_message_code)
+ping_message = string.char(ping_message_code)
 
 status = {
     play_status = false,
@@ -50,15 +52,20 @@ function process_changes()
     if input then
         local play_status = vlc.playlist.status()
         if status.play_status ~= play_status then
-            if play_status == "playing" then
+            if play_status == playing then
                 handle_play()
             else
                 handle_pause()
             end
-        end
-        local time = vlc.var.get(input, "time")
-        if (math.abs(time - status.time) > time_eps) then
-            handle_seek()
+        else
+            local time = vlc.var.get(input, "time")
+            if math.abs(time - status.time) > time_eps then
+                if vlc.playlist.status() == playing then
+                    handle_play()
+                else
+                    handle_seek()
+                end
+            end
         end
         update_status()
     end
@@ -66,8 +73,8 @@ end
 
 function handle_play()
     vlc.msg.dbg("Sending play message")
-    handle_seek()
-    write(socket, play_message)
+    local mstime = get_time_ms()
+    write(socket, play_message .. encode_time(mstime))
 end
 
 function handle_pause()
@@ -77,9 +84,7 @@ end
 
 function handle_seek()
     vlc.msg.dbg("Sending seek message")
-    local time = vlc.var.get(vlc.object.input(), "time")
-    local mstime = math.floor(time * 1000)
-    vlc.msg.dbg("time: " .. mstime)
+    local mstime = get_time_ms()
     write(socket, seek_message .. encode_time(mstime))
 end
 
@@ -91,6 +96,13 @@ function update_status()
         status.play_status = play_status
         status.time = time
     end
+end
+
+function get_time_ms()
+    local time = vlc.var.get(vlc.object.input(), "time")
+    local mstime = math.floor(time * 1000)
+    vlc.msg.dbg("time: " .. mstime)
+    return mstime
 end
 
 time_radix = 256
@@ -124,16 +136,20 @@ function seek(time)
 end
 
 --[[
-    1 byte: code
+    1 byte - code
     01: play
+        4 bytes - position in miliseconds
     02: pause
     03: seek position
-        4 bytes: position in seconds
+        4 bytes - position in miliseconds
+    127: ping
 ]]
 while true do
     local message_type = read(socket, message_type_size):byte(1)
     if message_type == play_message_code then
         vlc.msg.dbg("Play command received")
+        local mstime = decode_time(read(socket, message_time_size))
+        seek(mstime / 1000)
         vlc.playlist.play()
     elseif message_type == pause_message_code then
         vlc.msg.dbg("Pause command received")
@@ -142,8 +158,9 @@ while true do
         vlc.msg.dbg("Seek message received")
         local mstime = decode_time(read(socket, message_time_size))
         seek(mstime / 1000)
-    elseif message_type == wakeup_message_code then
-        -- vlc.msg.dbg("Wakeup message received")
+    elseif message_type == ping_message_code then
+        --vlc.msg.dbg("Ping message received")
+        write(socket, ping_message)
     else
         vlc.msg.dbg("Message of unknown type received: " .. message_type)
     end
